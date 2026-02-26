@@ -1,5 +1,8 @@
 # @kumiho/openclaw-kumiho
 
+[![npm version](https://img.shields.io/npm/v/@kumiho/openclaw-kumiho)](https://www.npmjs.com/package/@kumiho/openclaw-kumiho)
+[![license](https://img.shields.io/npm/l/@kumiho/openclaw-kumiho)](LICENSE)
+
 Long-term cognitive memory for [OpenClaw](https://openclaw.ai) agents, powered by [Kumiho.io](https://kumiho.io).
 
 Your agent forgets everything between sessions. This plugin fixes that by automatically watching conversations, extracting what matters, and bringing it back when relevant — with a **privacy-first** design where raw chats stay local and only structured summaries reach the graph database.
@@ -60,9 +63,9 @@ For **cloud mode** only, skip step 2 and set an API key instead.
 
 ## Configuration
 
-### Local Mode (default) — Quick Setup
+### Minimal Config
 
-Just install the Python packages and enable the plugin. No API key needed:
+All you need to get started after running `kumiho-setup`:
 
 ```json5
 // openclaw.json
@@ -72,7 +75,6 @@ Just install the Python packages and enable the plugin. No API key needed:
       "openclaw-kumiho": {
         "enabled": true,
         "config": {
-          "mode": "local",
           "userId": "your-user-id"
         }
       }
@@ -81,7 +83,7 @@ Just install the Python packages and enable the plugin. No API key needed:
 }
 ```
 
-The plugin automatically spawns `kumiho-mcp` and communicates via MCP over stdio.
+That's it. Mode defaults to `"local"`, the venv is auto-detected, and Dream State schedule is loaded from `~/.kumiho/preferences.json` (written by `kumiho-setup`).
 
 ### Local Mode — Custom Python Environment
 
@@ -94,14 +96,10 @@ If `kumiho-mcp` is in a virtualenv or a specific Python path:
       "openclaw-kumiho": {
         "enabled": true,
         "config": {
-          "mode": "local",
           "userId": "your-user-id",
           "local": {
             "pythonPath": "/home/user/.venvs/kumiho/bin/python",
-            "command": "kumiho.mcp_server",
-            "env": {
-              "ANTHROPIC_API_KEY": "sk-ant-..."
-            }
+            "command": "kumiho.mcp_server"
           }
         }
       }
@@ -193,6 +191,11 @@ export KUMIHO_MEMORY_ARTIFACT_ROOT="~/.kumiho/artifacts"
             "storeTranscriptions": true  // Upload voice/image transcriptions
           },
 
+          // Dream State (auto-loaded from ~/.kumiho/preferences.json if omitted)
+          "dreamStateSchedule": "0 3 * * *",   // Cron — "off" to disable
+          "dreamStateModel": { "provider": "anthropic", "model": "claude-haiku-4-5-20251001" },
+          "consolidationModel": { "provider": "anthropic", "model": "claude-sonnet-4-6" },
+
           // LLM for summarization (optional, uses agent default)
           "llm": {
             "provider": "anthropic",
@@ -219,7 +222,7 @@ export KUMIHO_MEMORY_ARTIFACT_ROOT="~/.kumiho/artifacts"
 
 ### Per-Turn Lifecycle
 
-```
+```text
 User sends message
     │
     ├── before_prompt_build
@@ -257,7 +260,7 @@ The idle track ensures short sessions (3–5 turns) still get consolidated — t
 
 ### Privacy Model
 
-```
+```text
 YOUR DEVICE (OpenClaw)              KUMIHO CLOUD / NEO4J
 ========================            ========================
 Raw chat transcripts     ----X----> (never uploaded)
@@ -278,7 +281,7 @@ The `CognitiveMemory` project (or any project name you configure) is automatical
 
 Session IDs are user-centric, not channel-specific:
 
-```
+```text
 alice-personal:user-7f3a9b:20260203:001
 ```
 
@@ -346,6 +349,60 @@ In any chat channel:
 ```
 
 Available kinds: `document`, `code`, `design`, `plan`, `analysis`, `other`
+
+## Troubleshooting
+
+### `kumiho-mcp` not found / Python process fails to start
+
+Run the setup wizard to install the Python backend:
+
+```bash
+npx --package=@kumiho/openclaw-kumiho kumiho-setup
+```
+
+Or install manually into an existing environment:
+
+```bash
+pip install "kumiho[mcp]" "kumiho-memory[all]"
+python -c "from kumiho.mcp_server import main; print('kumiho-mcp OK')"
+```
+
+If `kumiho-mcp` is in a virtualenv, point the plugin at it explicitly:
+
+```json5
+"local": { "pythonPath": "/path/to/venv/bin/python" }
+```
+
+### Plugin not loading / no memory injected
+
+1. Check that `enabled: true` is set in `openclaw.json`.
+2. Run `openclaw kumiho stats` — if it errors, the service isn't running.
+3. Check OpenClaw logs for `Kumiho:` prefixed lines — startup errors are logged there.
+4. Confirm `userId` is set; without it the session ID cannot be generated.
+
+### Redis / working memory errors
+
+The Python SDK discovers the Upstash Redis connection automatically via the Kumiho control plane. If you see Redis errors:
+
+- Make sure you completed `kumiho-setup` and authenticated (`kumiho-auth login`).
+- If you're offline, the SDK falls back to the server-side memory proxy automatically.
+- To override: `export UPSTASH_REDIS_URL="rediss://..."` before starting OpenClaw.
+
+### Dream State not running
+
+- Verify the schedule in `~/.kumiho/preferences.json` (`dreamState.schedule`) is not `"off"`.
+- The scheduler arms on plugin start — restart OpenClaw after changing the schedule.
+- Test manually: `openclaw kumiho dream` (or call the `memory_dream` tool in chat).
+
+### Memories not persisting across sessions
+
+Working memory (Redis) is flushed to the graph by consolidation. If you end a session abruptly before 5 minutes of idle time or 20 messages, run:
+
+```bash
+openclaw kumiho consolidate
+```
+
+Or lower `idleConsolidationTimeout` in your config (e.g. `60` seconds).
 
 ## Standalone API
 
