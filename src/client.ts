@@ -481,10 +481,16 @@ export class KumihoClient {
   // Dream State
   // -----------------------------------------------------------------------
 
-  async triggerDreamState(): Promise<DreamStateStats> {
-    return this.transport.call<DreamStateStats>("kumiho_memory_dream_state", {
-      project: this.project,
-    });
+  async triggerDreamState(modelConfig?: {
+    provider?: string;
+    model?: string;
+    apiKey?: string;
+  }): Promise<DreamStateStats> {
+    const params: Record<string, unknown> = { project: this.project };
+    if (modelConfig?.provider) params.provider = modelConfig.provider;
+    if (modelConfig?.model) params.model = modelConfig.model;
+    if (modelConfig?.apiKey) params.api_key = modelConfig.apiKey;
+    return this.transport.call<DreamStateStats>("kumiho_memory_dream_state", params);
   }
 
   // -----------------------------------------------------------------------

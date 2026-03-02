@@ -308,7 +308,7 @@ export class McpBridge extends EventEmitter {
       },
       clientInfo: {
         name: "@kumiho/openclaw-kumiho",
-        version: "0.1.0",
+        version: "0.2.2",
       },
     })) as {
       protocolVersion: string;

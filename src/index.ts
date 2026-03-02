@@ -20,6 +20,7 @@
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { readFileSync, existsSync } from "node:fs";
+import { execFile } from "node:child_process";
 
 // ---------------------------------------------------------------------------
 // Preferences loader — reads ~/.kumiho/preferences.json written by kumiho-setup
@@ -68,6 +69,7 @@ import type {
   KumihoPluginConfig,
   ResolvedConfig,
   ChannelInfo,
+  DreamStateStats,
 } from "./types.js";
 
 // ---------------------------------------------------------------------------
@@ -320,6 +322,44 @@ function msUntilNextCron(cron: string): number {
   return next.getTime() - now.getTime();
 }
 
+/**
+ * Run Dream State via the standalone Python CLI as a fallback.
+ * Spawns `python -m kumiho_memory dream` using the resolved Python path.
+ */
+function execDreamStateCli(
+  cfg: ResolvedConfig,
+  logger: { info: (m: string) => void; warn: (m: string) => void },
+): Promise<DreamStateStats | null> {
+  return new Promise((resolve) => {
+    const pythonPath = cfg.local.pythonPath;
+    const args = ["-m", "kumiho_memory", "dream", "--project", cfg.project];
+
+    logger.info(`Kumiho Dream State fallback: ${pythonPath} ${args.join(" ")}`);
+
+    // Inject model config as env vars for the CLI subprocess
+    const env = { ...process.env };
+    const dm = cfg.dreamStateModel;
+    if (dm?.provider) env.KUMIHO_LLM_PROVIDER = dm.provider;
+    if (dm?.model) env.KUMIHO_LLM_MODEL = dm.model;
+    if (dm?.apiKey) env.KUMIHO_LLM_API_KEY = dm.apiKey;
+
+    execFile(pythonPath, args, { timeout: 300_000, env }, (err, stdout, stderr) => {
+      if (err) {
+        logger.warn(`Dream State CLI failed: ${err.message}`);
+        if (stderr) logger.warn(`  stderr: ${stderr.trim()}`);
+        resolve(null);
+        return;
+      }
+      try {
+        resolve(JSON.parse(stdout) as DreamStateStats);
+      } catch {
+        logger.info(`Dream State CLI output: ${stdout.trim()}`);
+        resolve(null);
+      }
+    });
+  });
+}
+
 function scheduleDreamState(
   kumihoClient: KumihoClient,
   cfg: ResolvedConfig,
@@ -336,13 +376,25 @@ function scheduleDreamState(
   dreamStateTimer = setTimeout(async () => {
     dreamStateTimer = null;
     try {
-      const stats = await kumihoClient.triggerDreamState();
+      const dm = cfg.dreamStateModel;
+      const modelConfig = dm?.provider || dm?.model || dm?.apiKey ? dm : undefined;
+      const stats = await kumihoClient.triggerDreamState(modelConfig);
       logger.info(
         `Kumiho Dream State complete — ${stats.events_processed} events, ` +
           `${stats.edges_created} edges, ${stats.deprecated} deprecated`,
       );
     } catch (err) {
-      logger.warn(`Kumiho Dream State failed: ${(err as Error).message}`);
+      logger.warn(
+        `Kumiho Dream State MCP call failed: ${(err as Error).message} — trying standalone CLI...`,
+      );
+      // Fallback: run dream state via the standalone Python CLI
+      const stats = await execDreamStateCli(cfg, logger);
+      if (stats) {
+        logger.info(
+          `Kumiho Dream State (CLI) complete — ${stats.events_processed} events, ` +
+            `${stats.edges_created} edges, ${stats.deprecated} deprecated`,
+        );
+      }
     }
     // Reschedule for next occurrence
     scheduleDreamState(kumihoClient, cfg, logger);

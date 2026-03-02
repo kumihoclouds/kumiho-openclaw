@@ -509,3 +509,41 @@ console.log(`      }`);
 console.log(`    }`);
 console.log(`  }`);
 console.log();
+
+// 12. Dream State standalone cron instructions ---------------------------------
+if (finalCron && scheduleChoice.key !== "off") {
+  const pythonCmd = IS_WIN
+    ? VENV_PYTHON.replace(/\\/g, "\\\\")
+    : VENV_PYTHON;
+
+  console.log(`${c.bold}${c.cyan}── Dream State Standalone Runner ──────────────────────────${c.reset}`);
+  console.log();
+  console.log("Dream State can run standalone (no plugin or active session needed).");
+  console.log(`The CLI is installed at: ${c.green}${VENV_PYTHON.replace(/python(\.exe)?$/, `kumiho-memory${EXT}`)}${c.reset}`);
+  console.log();
+
+  if (IS_WIN) {
+    // Windows Task Scheduler
+    console.log(`${c.bold}Option A: Windows Task Scheduler${c.reset}`);
+    console.log(`  Run this in PowerShell to create a scheduled task:`);
+    console.log();
+    console.log(`  ${c.dim}$action = New-ScheduledTaskAction -Execute "${VENV_PYTHON}" -Argument "-m kumiho_memory dream"${c.reset}`);
+    console.log(`  ${c.dim}$trigger = New-ScheduledTaskTrigger -Daily -At 3AM${c.reset}`);
+    console.log(`  ${c.dim}Register-ScheduledTask -TaskName "KumihoDreamState" -Action $action -Trigger $trigger${c.reset}`);
+  } else {
+    // Unix crontab
+    console.log(`${c.bold}Option A: crontab (recommended)${c.reset}`);
+    console.log(`  Add this line to your crontab (${c.dim}crontab -e${c.reset}):`);
+    console.log();
+    console.log(`  ${c.green}${finalCron} ${VENV_PYTHON} -m kumiho_memory dream >> ~/.kumiho/dream-state.log 2>&1${c.reset}`);
+  }
+  console.log();
+  console.log(`${c.bold}Option B: Manual / test run${c.reset}`);
+  console.log(`  ${c.green}${pythonCmd} -m kumiho_memory dream${c.reset}`);
+  console.log(`  ${c.green}${pythonCmd} -m kumiho_memory dream --dry-run${c.reset}  ${c.dim}# preview without mutations${c.reset}`);
+  console.log();
+  console.log(`${c.bold}Option C: In-session (plugin loaded)${c.reset}`);
+  console.log(`  The OpenClaw plugin also schedules Dream State via setTimeout while active.`);
+  console.log(`  The standalone runner above ensures it runs even when no session is open.`);
+  console.log();
+}

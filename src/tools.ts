@@ -476,7 +476,9 @@ export async function handleMemoryConsolidate(
 }
 
 export async function handleMemoryDream(ctx: ToolContext): Promise<string> {
-  const stats = await ctx.client.triggerDreamState();
+  const dm = ctx.config.dreamStateModel;
+  const modelConfig = dm?.provider || dm?.model || dm?.apiKey ? dm : undefined;
+  const stats = await ctx.client.triggerDreamState(modelConfig);
 
   const lines = [
     "Dream State consolidation complete.",
