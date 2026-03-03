@@ -474,7 +474,11 @@ declare class KumihoClient {
      * @param apiKey   Bearer token forwarded to the BFF
      */
     creativeEnqueue(params: CreativeCaptureParams, bffUrl: string, apiKey: string): Promise<CreativeCaptureResult>;
-    triggerDreamState(): Promise<DreamStateStats>;
+    triggerDreamState(modelConfig?: {
+        provider?: string;
+        model?: string;
+        apiKey?: string;
+    }): Promise<DreamStateStats>;
     ping(): Promise<boolean>;
 }
 

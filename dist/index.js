@@ -2,6 +2,7 @@
 import { homedir as homedir3 } from "os";
 import { join as join3 } from "path";
 import { readFileSync, existsSync as existsSync2 } from "fs";
+import { execFile } from "child_process";
 
 // src/mcp-bridge.ts
 import { spawn } from "child_process";
@@ -235,7 +236,7 @@ var McpBridge = class extends EventEmitter {
       },
       clientInfo: {
         name: "@kumiho/openclaw-kumiho",
-        version: "0.1.0"
+        version: "0.2.2"
       }
     });
     this.serverCapabilities = initResult.capabilities;
@@ -690,10 +691,12 @@ var KumihoClient = class {
   // -----------------------------------------------------------------------
   // Dream State
   // -----------------------------------------------------------------------
-  async triggerDreamState() {
-    return this.transport.call("kumiho_memory_dream_state", {
-      project: this.project
-    });
+  async triggerDreamState(modelConfig) {
+    const params = { project: this.project };
+    if (modelConfig?.provider) params.provider = modelConfig.provider;
+    if (modelConfig?.model) params.model = modelConfig.model;
+    if (modelConfig?.apiKey) params.api_key = modelConfig.apiKey;
+    return this.transport.call("kumiho_memory_dream_state", params);
   }
   // -----------------------------------------------------------------------
   // Health check
@@ -1561,7 +1564,9 @@ Kref: ${result.item_kref}
 Space: ${result.space_path}`;
 }
 async function handleMemoryDream(ctx) {
-  const stats = await ctx.client.triggerDreamState();
+  const dm = ctx.config.dreamStateModel;
+  const modelConfig = dm?.provider || dm?.model || dm?.apiKey ? dm : void 0;
+  const stats = await ctx.client.triggerDreamState(modelConfig);
   const lines = [
     "Dream State consolidation complete.",
     "",
@@ -1776,6 +1781,32 @@ function msUntilNextCron(cron) {
   if (next <= now) next.setDate(next.getDate() + 1);
   return next.getTime() - now.getTime();
 }
+function execDreamStateCli(cfg, logger) {
+  return new Promise((resolve) => {
+    const pythonPath = cfg.local.pythonPath;
+    const args = ["-m", "kumiho_memory", "dream", "--project", cfg.project];
+    logger.info(`Kumiho Dream State fallback: ${pythonPath} ${args.join(" ")}`);
+    const env = { ...process.env };
+    const dm = cfg.dreamStateModel;
+    if (dm?.provider) env.KUMIHO_LLM_PROVIDER = dm.provider;
+    if (dm?.model) env.KUMIHO_LLM_MODEL = dm.model;
+    if (dm?.apiKey) env.KUMIHO_LLM_API_KEY = dm.apiKey;
+    execFile(pythonPath, args, { timeout: 3e5, env }, (err, stdout, stderr) => {
+      if (err) {
+        logger.warn(`Dream State CLI failed: ${err.message}`);
+        if (stderr) logger.warn(`  stderr: ${stderr.trim()}`);
+        resolve(null);
+        return;
+      }
+      try {
+        resolve(JSON.parse(stdout));
+      } catch {
+        logger.info(`Dream State CLI output: ${stdout.trim()}`);
+        resolve(null);
+      }
+    });
+  });
+}
 function scheduleDreamState(kumihoClient, cfg, logger) {
   const ms = msUntilNextCron(cfg.dreamStateSchedule);
   if (ms < 0) return;
@@ -1786,12 +1817,22 @@ function scheduleDreamState(kumihoClient, cfg, logger) {
   dreamStateTimer = setTimeout(async () => {
     dreamStateTimer = null;
     try {
-      const stats = await kumihoClient.triggerDreamState();
+      const dm = cfg.dreamStateModel;
+      const modelConfig = dm?.provider || dm?.model || dm?.apiKey ? dm : void 0;
+      const stats = await kumihoClient.triggerDreamState(modelConfig);
       logger.info(
         `Kumiho Dream State complete \u2014 ${stats.events_processed} events, ${stats.edges_created} edges, ${stats.deprecated} deprecated`
       );
     } catch (err) {
-      logger.warn(`Kumiho Dream State failed: ${err.message}`);
+      logger.warn(
+        `Kumiho Dream State MCP call failed: ${err.message} \u2014 trying standalone CLI...`
+      );
+      const stats = await execDreamStateCli(cfg, logger);
+      if (stats) {
+        logger.info(
+          `Kumiho Dream State (CLI) complete \u2014 ${stats.events_processed} events, ${stats.edges_created} edges, ${stats.deprecated} deprecated`
+        );
+      }
     }
     scheduleDreamState(kumihoClient, cfg, logger);
   }, ms);
